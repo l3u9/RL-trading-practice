@@ -84,24 +84,3 @@ class DDQN:
 
     def update_target_net(self):
         self.q2_network.load_state_dict(self.q1_network.state_dict())
-
-def train_ddqn(agent, env, episodes, timesteps, update_frequency):
-    for episode in range(episodes):
-        state = env.reset()
-        total_reward = 0
-
-        for t in range(timesteps):
-            action = agent.get_action(state)
-            next_state, reward, done, _ = env.step(action)
-            agent.remember(state, action, reward, next_state, done)
-            agent.learn()
-            state = next_state
-            total_reward += reward
-
-            if done:
-                break
-
-        if episode % update_frequency == 0:
-            agent.update_target_net()
-
-        print(f"Episode: {episode}, Total reward: {total_reward}, Epsilon: {agent.epsilon}")

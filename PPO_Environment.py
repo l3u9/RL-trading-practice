@@ -6,9 +6,9 @@ import copy
 from collections import deque
 from datetime import datetime
 from utils import *
-from model import *
+from PPO import *
 from torch.optim import Adam, RMSprop
-from model import Actor_Model, Critic_Model
+from PPO import Actor_Model, Critic_Model
 
 
 class CustomEnv:
@@ -95,29 +95,31 @@ class CustomEnv:
             pass
         
         elif action == 1: # buy
-            if self.before_action != 2:
-                self.crypto_bought = self.balance / current_price
-                self.balance -= self.crypto_bought * current_price
-                self.crypto_held += self.crypto_bought
-            else:
+            if self.before_action == 2 or self.before_action == 0:
                 self.crypto_sold = self.crypto_held
                 self.balance += self.crypto_sold * current_price
                 self.crypto_held -= self.crypto_sold
-            self.before_action = 1
+            else:
+                self.crypto_bought = self.balance / current_price
+                self.balance -= self.crypto_bought * current_price
+                self.crypto_held += self.crypto_bought
 
 
         
         elif action == 2: # sell
-            if self.before_action != 1:
-                self.crypto_sold = self.crypto_held
-                self.balance += self.crypto_sold * current_price
-                self.crypto_held -= self.crypto_sold
-            else:
+            if self.before_action == 1 or self.before_action == 0:
                 self.crypto_bought = self.balance / current_price
                 self.balance -= self.crypto_bought * current_price
                 self.crypto_held += self.crypto_bought
-            self.before_action = 2
+            else:
+                self.crypto_sold = self.crypto_held
+                self.balance += self.crypto_sold * current_price
+                self.crypto_held -= self.crypto_sold      
+                
+                 
 
+
+        self.before_action = action
         
         # print(self.orders_history[-1])
         # Write_to_file(Date, self.orders_history[-1])
@@ -130,6 +132,7 @@ class CustomEnv:
         reward = self.net_worth - self.prev_net_worth
 
 
+        # print(reward)
 
         if self.net_worth <= self.initial_balance/2:
             done = True
@@ -213,6 +216,7 @@ class CustomEnv:
         # Use the network to predict the next action to take, using the model
         # prediction = self.Actor.forward(np.expand_dims(state, axis=0))[0]
         prediction = self.Actor.forward(state)
+        # print(prediction)
         # print("Prediction:", prediction)
         # print("Prediction.item():", prediction.item())
         # print("Type of prediction.item():", type(prediction.item()))

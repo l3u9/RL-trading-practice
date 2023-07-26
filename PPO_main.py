@@ -1,6 +1,6 @@
 import pandas as pd
 from PPO_Environment import *
-from model import *
+from PPO import *
 from utils import *
 
 csvs = get_csv_path()
@@ -21,6 +21,6 @@ df = df.reset_index()
 
 env = CustomEnv(df,lookback_window_size=1000)
 
-train_agent(env, visualize=False, train_episodes=500, training_batch_size=1000)
+train_agent(env, visualize=False, train_episodes=1000, training_batch_size=500)
 
 # Random_games(env, False)

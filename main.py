@@ -1,6 +1,6 @@
 import pandas as pd
 from Environment import *
-from model import *
+from PPO import *
 from utils import *
 
 csvs = get_csv_path()

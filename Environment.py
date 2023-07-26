@@ -6,7 +6,7 @@ import copy
 from collections import deque
 from datetime import datetime
 from utils import *
-from model import *
+from PPO import *
 
 
 class CustomEnv:
@@ -119,7 +119,6 @@ class CustomEnv:
         reward = self.net_worth - self.prev_net_worth
 
 
-
         if self.net_worth <= self.initial_balance/2:
             done = True
         else:
@@ -143,4 +142,5 @@ class CustomEnv:
 
         return obs
 
-
+    def render(self):
+        pass
