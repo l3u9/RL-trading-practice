@@ -1,86 +1,113 @@
-import numpy as np
-import random
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import random
 from collections import deque
+import numpy as np
+from utils import *
 
+class DDQN(nn.Module):
+    def __init__(self, state_size, action_size):
+        super(DDQN, self).__init__()
+        self.model = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(state_size, 128),
+            nn.ReLU(),  # Add ReLU activation
+            nn.Linear(128, 64),
+            nn.ReLU(),  # Add ReLU activation
+            nn.Linear(64, action_size)
+        )
 
-class QNetwork(nn.Module):
-    def __init__(self, state_size, action_size, hidden_size):
-        super(QNetwork, self).__init__()
-        self.fc1 = nn.Linear(state_size, hidden_size)
-        self.fc2 = nn.Linear(hidden_size, hidden_size)
-        self.fc3 = nn.Linear(hidden_size, action_size)
 
     def forward(self, x):
-        x = torch.relu(self.fc1(x))
-        x = torch.relu(self.fc2(x))
-        return self.fc3(x)
+        # print(x.shape)
+        x = self.model(x)
+        return x
 
-class DDQN:
-    def __init__(self, env, state_size, action_size, hidden_size,
-                 learning_rate, batch_size, gamma, epsilon_init, epsilon_decay, epsilon_min, memory_capacity):
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.env = env
+class DDQNAgent:
+    def __init__(self, state_size, action_size):
         self.state_size = state_size
         self.action_size = action_size
-        self.hidden_size = hidden_size
-        self.learning_rate = learning_rate
-        self.batch_size = batch_size
-        self.gamma = gamma
-        self.epsilon = epsilon_init
-        self.epsilon_decay = epsilon_decay
-        self.epsilon_min = epsilon_min
-        self.memory_capacity = memory_capacity
-        self.memory = deque(maxlen=memory_capacity)
+        self.memory = deque(maxlen=2000)
 
-        # Q networks
-        self.q1_network = QNetwork(state_size, action_size, hidden_size).to(self.device)
-        self.q2_network = QNetwork(state_size, action_size, hidden_size).to(self.device)
-        self.q2_network.load_state_dict(self.q1_network.state_dict())
-        self.optimizer = optim.Adam(self.q1_network.parameters(), lr=learning_rate)
-        self.criterion = nn.MSELoss()
+        self.gamma = 0.95
+        self.epsilon = 1.0
+        self.epsilon_min = 0.01
+        self.epsilon_decay = 0.995
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    def get_action(self, state):
-        if np.random.random() < self.epsilon:
-            return self.env.action_space.sample()
-        else:
-            return self.choose_best_action(state)
-
-    def choose_best_action(self, state):
-        state_tensor = torch.Tensor(state).to(self.device)
-        with torch.no_grad():
-            return torch.argmax(self.q1_network(state_tensor)).item()
+        self.policy_net = DDQN(state_size, action_size).to(self.device)
+        self.target_net = DDQN(state_size, action_size).to(self.device)
+        self.optimizer = optim.Adam(self.policy_net.parameters(), lr=0.001)
 
     def remember(self, state, action, reward, next_state, done):
         self.memory.append((state, action, reward, next_state, done))
 
-    def learn(self):
-        if len(self.memory) < self.batch_size: return
-        batch = random.sample(self.memory, self.batch_size)
-        states, actions, rewards, next_states, dones = zip(*batch)
+    def act(self, state):
+        if np.random.rand() < self.epsilon:
+            return random.randrange(self.action_size)
+        state_tensor = torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(self.device)
+        act_values = self.policy_net(state_tensor)
+        return np.argmax(act_values.detach().cpu().numpy())
 
-        states_tensor = torch.Tensor(states).to(self.device)
-        actions_tensor = torch.LongTensor(actions).view(-1, 1).to(self.device)
-        rewards_tensor = torch.Tensor(rewards).view(-1, 1).to(self.device)
-        next_states_tensor = torch.Tensor(next_states).to(self.device)
-        dones_tensor = torch.BoolTensor(dones).to(self.device)
+    def replay(self, batch_size):
+        minibatch = random.sample(self.memory, batch_size)
+        for state, action, reward, next_state, done in minibatch:
+            state = torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(self.device)
+            next_state = torch.tensor(next_state, dtype=torch.float32).unsqueeze(0).to(self.device)
+            target = reward
+            if not done:
+                target = (reward + self.gamma * torch.max(self.target_net(next_state)).item())
+            target_f = self.policy_net(state)
+            target_f[0, action] = target  # Updated line
+            self.optimizer.zero_grad()
+            loss = nn.MSELoss()(self.policy_net(state), target_f)
+            loss.backward(retain_graph=True)
+            self.optimizer.step()
+        if self.epsilon > self.epsilon_min:
+            self.epsilon *= self.epsilon_decay
 
-        with torch.no_grad():
-            actions_next = torch.argmax(self.q1_network(next_states_tensor), 1, keepdims=True)
-            q2_values_next = torch.gather(self.q2_network(next_states_tensor), 1, actions_next)
+    def update_target_model(self):
+        self.target_net.load_state_dict(self.policy_net.state_dict())
 
-        q1_values = self.q1_network(states_tensor)
-        q1_values_selected = torch.gather(q1_values, 1, actions_tensor)
-        q1_target = rewards_tensor + self.gamma * q2_values_next * ~dones_tensor
 
-        loss = self.criterion(q1_values_selected, q1_target)
-        self.optimizer.zero_grad()
-        loss.backward()
-        self.optimizer.step()
+def train_ddqn(env, agent, episodes, batch_size):
+    steps = 500
+    total_average = deque(maxlen=1000)
+    position = ""
+    done = False
+    for e in range(episodes):
+        state = env.reset()
+        total_reward = 0
+        # for _ in range(steps):
+        while True:
+            action = agent.act(state)
+            next_state, reward, done, action, Date, action = env.step(action)
+            total_reward += reward
+            agent.remember(state, action, reward, next_state, done)
+            state = next_state
 
-        self.epsilon = max(self.epsilon - self.epsilon_decay, self.epsilon_min)
+            if action == 0:
+                position = "hold"
+            elif action == 1:
+                position = "buy"
+            elif action == 2:
+                position = "sell"
+            else:
+                position = "error"
 
-    def update_target_net(self):
-        self.q2_network.load_state_dict(self.q1_network.state_dict())
+            Write_to_file(Date, [env.net_worth, env.crypto_held, reward, env.balance, position])
+
+            if done:
+                break
+            if env.current_step == env.end_step:
+                break
+            if len(agent.memory) > batch_size:
+                agent.replay(batch_size) 
+
+        total_average.append(env.net_worth)
+        average = np.average(total_average)
+        agent.update_target_model()
+        print("net worth {} {:.2f} {:.2f} {}".format(e, env.net_worth, average, env.episode_orders))
+
+        # print(f"Episode: {e}/{episodes}, Total reward: {total_reward}, Epsilon: {agent.epsilon}")
